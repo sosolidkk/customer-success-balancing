@@ -8,10 +8,9 @@
 
 ## Como rodar os testes
 
-No terminal, execute os comandos:
+No terminal, pasta do repositório, execute o comando:
 
 ```
-cd ruby
 ruby customer_success_balancing.rb
 ```
 
