@@ -1,57 +1,101 @@
+# frozen_string_literal: true
+
 require 'minitest/autorun'
 require 'timeout'
 
-# Class responsible for returning the CS id that serves the most customers
-# @param customer_success [Array<Integer>] customer success experience level
-# @param customers [Array<Integer>] customers experience level
-# @param away_customer_success [Array<Integer>] unavailable customer success ids
-# @return [Integer] customer_success id
+# Class responsible for balancing customer success allocation.
+#
+# This class determines the customer success (CS) ID that serves the most customers
+# based on the given data. It also handles scenarios where certain customer success
+# agents are unavailable.
+#
 class CustomerSuccessBalancing
-  attr_reader :customer_success, :customers, :away_customer_success
+  # Exception raised when the size of away_customer_success is equal to half
+  # the size of customer_success.
+  class MaximumAwayCustomerSuccessSizeReached < StandardError; end
 
+  # Initializes a new instance of CustomerSuccessBalancing.
+  #
+  # Raises a MaximumAwayCustomerSuccessSizeReached exception if the away_customer_success
+  # array size is equal to half the size of the customer_success array.
+  #
+  # @param customer_success [Array<Hash>] Array of customer success data including ID and experience level.
+  # @param customers [Array<Hash>] Array of customer data including ID and experience level.
+  # @param away_customer_success [Array<Integer>] Array of IDs of unavailable customer success agents.
+  #
   def initialize(customer_success, customers, away_customer_success)
+    unless valid_away_customer_success_maximum_size?(customer_success, away_customer_success)
+      raise MaximumAwayCustomerSuccessSizeReached
+    end
+
     @customer_success = customer_success
     @customers = customers
     @away_customer_success = away_customer_success
   end
 
-  # Returns the ID of the customer success with most customers
+  # Executes the customer success balancing algorithm.
+  #
+  # This method calculates the ID of the customer success agent that serves the most customers.
+  # If there are multiple customer success agents with the same number of served customers,
+  # it returns 0.
+  #
+  # @return [Integer] ID of the customer success agent with the most customers served,
+  #   or 0 if there are multiple customer success agents with the same number of served customers.
+  #
   def execute
-    # Remove all away CS's
-    available_customer_success = customer_success.reject { |item| away_customer_success.include?(item[:id]) }
+    customer_success = sort_customer_success
+    customers = sort_customers
 
-    # Sort all CS's by score
-    available_customer_success.sort_by! { |item| item[:score] }
+    cs_customers_count = {}
 
-    # Sort all CS's by score
-    customers.sort_by! { |item| item[:score] }
-
-    matched_customers = {}
-
-    available_customer_success.each do |available_cs|
+    customer_success.each do |available_cs|
       score = available_cs[:score]
 
-      users_count = (customers.dup - customers.delete_if { |customer| customer[:score] <= score }).count
+      original_customers_count = customers.size
+      customers.reject! { |customer| customer[:score] <= score }
 
-      matched_customers[available_cs[:id]] = users_count
+      cs_customers_count[available_cs[:id]] = (original_customers_count - customers.size)
     end
 
-    id, max_value = matched_customers.max_by { |_, value| value }
-    count_of_max_value = matched_customers.count { |_, value| value == max_value }
-
-    count_of_max_value > 1 ? 0 : id
+    fetch_customer_success_id(cs_customers_count)
   end
 
   private
 
-  def maximum_away_customer_success_size = (customer_success.size / 2).floor
+  def fetch_customer_success_id(cs_customers_count)
+    customer_success_id, max_value = cs_customers_count.max_by { |_id, value| value }
+    count_of_max_value = cs_customers_count.count { |_id, value| value == max_value }
 
-  def valid_away_customer_success_size?
-    maximum_away_customer_success_size <= away_customer_success.size || away_customer_success.empty?
+    count_of_max_value > 1 ? 0 : customer_success_id
+  end
+
+  def sort_customer_success
+    remove_away_customer_success_ids.sort_by { |customer_success| customer_success[:score] }
+  end
+
+  def remove_away_customer_success_ids
+    @customer_success.reject { |customer| @away_customer_success.include?(customer[:id]) }
+  end
+
+  def sort_customers = @customers.sort_by { |customer| customer[:score] }
+
+  protected
+
+  # Checks if the size of away_customer_success array is less than half the size of customer_success array.
+  #
+  # @param customer_success [Array<Hash>] Array of customer success data including ID and experience level.
+  # @param away_customer_success [Array<Integer>] Array of IDs of unavailable customer success agents.
+  # @return [Boolean] True if the size of away_customer_success is less than half the size of customer_success,
+  #   otherwise false.
+  #
+  def valid_away_customer_success_maximum_size?(customer_success, away_customer_success)
+    maximum_away_customer_success_size = (customer_success.size / 2).floor
+
+    maximum_away_customer_success_size >= away_customer_success.size
   end
 end
 
-# Class responsible for executing the test suite
+# Test class responsible for executing and validating the customer success balancing algorithm
 class CustomerSuccessBalancingTests < Minitest::Test
   def test_scenario_one
     balancer = CustomerSuccessBalancing.new(
@@ -124,6 +168,18 @@ class CustomerSuccessBalancingTests < Minitest::Test
       [2, 4]
     )
     assert_equal 1, balancer.execute
+  end
+
+  def test_scenario_nine
+    exception = CustomerSuccessBalancing::MaximumAwayCustomerSuccessSizeReached
+
+    assert_raises(exception) do
+      CustomerSuccessBalancing.new(
+        build_scores([1, 2, 3]),
+        build_scores([2, 3, 4, 5]),
+        [1, 2]
+      )
+    end
   end
 
   private
