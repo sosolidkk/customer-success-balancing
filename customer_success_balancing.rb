@@ -12,7 +12,20 @@ require 'timeout'
 class CustomerSuccessBalancing
   # Exception raised when the size of away_customer_success is equal to half
   # the size of customer_success.
-  class MaximumAwayCustomerSuccessSizeReached < StandardError; end
+  class MaximumAwayCustomerSuccessSizeReached < StandardError
+    # Validates if the size of away_customer_success array is less than half the size of customer_success array.
+    #
+    # @param customer_success [Array<Hash>] Array of customer success data including ID and experience level.
+    # @param away_customer_success [Array<Integer>] Array of IDs of unavailable customer success agents.
+    # @return [self|nil] self if the size of away_customer_success is less than half the size of customer_success,
+    #   otherwise nil.
+    #
+    def self.validate!(customer_success, away_customer_success)
+      maximum_away_customer_success_size = (customer_success.size / 2).floor
+
+      raise self unless maximum_away_customer_success_size >= away_customer_success.size
+    end
+  end
 
   # Initializes a new instance of CustomerSuccessBalancing.
   #
@@ -24,9 +37,7 @@ class CustomerSuccessBalancing
   # @param away_customer_success [Array<Integer>] Array of IDs of unavailable customer success agents.
   #
   def initialize(customer_success, customers, away_customer_success)
-    unless valid_away_customer_success_maximum_size?(customer_success, away_customer_success)
-      raise MaximumAwayCustomerSuccessSizeReached
-    end
+    MaximumAwayCustomerSuccessSizeReached.validate!(customer_success, away_customer_success)
 
     @customer_success = customer_success
     @customers = customers
@@ -45,6 +56,8 @@ class CustomerSuccessBalancing
   def execute
     customer_success = sort_customer_success
     customers = sort_customers
+
+    customer_success = remove_unecessary_customer_success(customer_success, customers)
 
     cs_customers_count = {}
 
@@ -77,22 +90,14 @@ class CustomerSuccessBalancing
     @customer_success.reject { |customer| @away_customer_success.include?(customer[:id]) }
   end
 
-  def sort_customers = @customers.sort_by { |customer| customer[:score] }
+  def remove_unecessary_customer_success(customer_success, customers)
+    min_value = customers.min { |customer| customer[:score] }
+    index = customer_success.bsearch_index { |success| success[:score] >= min_value[:score] }
 
-  protected
-
-  # Checks if the size of away_customer_success array is less than half the size of customer_success array.
-  #
-  # @param customer_success [Array<Hash>] Array of customer success data including ID and experience level.
-  # @param away_customer_success [Array<Integer>] Array of IDs of unavailable customer success agents.
-  # @return [Boolean] True if the size of away_customer_success is less than half the size of customer_success,
-  #   otherwise false.
-  #
-  def valid_away_customer_success_maximum_size?(customer_success, away_customer_success)
-    maximum_away_customer_success_size = (customer_success.size / 2).floor
-
-    maximum_away_customer_success_size >= away_customer_success.size
+    customer_success[index..]
   end
+
+  def sort_customers = @customers.sort_by { |customer| customer[:score] }
 end
 
 # Test class responsible for executing and validating the customer success balancing algorithm
